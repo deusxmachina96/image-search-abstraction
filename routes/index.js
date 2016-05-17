@@ -35,7 +35,7 @@ var logError = function(error) {
 
 /* GET home page. */
 router.get('/', function(req, res, next) {
-  res.json({error: "Please enter a valid search string."});
+  res.render('index', {link: "img-abstraction-layer.herokuapp.com"});
 });
 
 router.get('/:search_query', function(req, res, next){
