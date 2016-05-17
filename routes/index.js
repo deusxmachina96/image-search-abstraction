@@ -1,16 +1,36 @@
 var express = require('express');
 var https = require('https');
+var pgp = require('pg-promise')();
 var router = express.Router();
 
-var queryString = function(options) {
+
+var dbOptions;
+if(process.env.NODE_ENV) {
+  dbOptions = process.env.DATABASE_URL;
+} else {
+  dbOptions = {
+    host: 'localhost',
+    port: 5432,
+    database: 'image_search_db',
+    user: 'postgres',
+    password: 'postgres'
+  }
+}
+
+var db = pgp(dbOptions);
+
+var createQueryString = function(options) {
   var query_string = "?";
-  query_string += "q=" + encodeURIComponent(options.mainQuery);
+  query_string += "q=" + encodeURIComponent(options.queryTerm);
   query_string += "&count=" + options.count;
   query_string += "&mkt=" + options.mkt;
   if(options.offset) {
     query_string += "&offset=" + options.offset;
   }
   return query_string;
+};
+var logError = function(error) {
+  console.log("ERROR: ", error);
 };
 
 /* GET home page. */
@@ -21,7 +41,7 @@ router.get('/', function(req, res, next) {
 router.get('/:search_query', function(req, res, next){
 
   var searchOptions = {
-    mainQuery: req.params.search_query,
+    queryTerm: req.params.search_query,
     offset: req.query.offset,
     count: 10,
     mkt: 'en-us'
@@ -29,13 +49,22 @@ router.get('/:search_query', function(req, res, next){
 
   var httpOptions = {
     host: 'bingapis.azure-api.net',
-    path: '/api/v5/images/search' + queryString(searchOptions),
+    path: '/api/v5/images/search' + createQueryString(searchOptions),
     headers: {'Ocp-Apim-Subscription-Key' : '772467057cb64905b25a9744627d0cfc'}
   };
 
-  console.log(queryString(searchOptions));
+  var queryTime = (new Date()).toUTCString();
+
   var responseData = "";
   var imageInfoArray = [];
+
+  db.none("INSERT INTO history(query_term, query_time) VALUES ($1, $2)", [searchOptions.queryTerm, queryTime])
+      .then(function() {
+        console.log("Inserted query " + searchOptions.queryTerm + " at " + queryTime);
+      })
+      .catch(function(error) {
+        logError(error);
+      });
   https.get(httpOptions, function(response) {
 
     response.on('data', function(chunk) {
@@ -61,6 +90,17 @@ router.get('/:search_query', function(req, res, next){
 
   });
 
+});
+
+router.get('/api/latest', function(req, res, next) {
+  db.any("SELECT * from history ORDER BY query_time DESC LIMIT 10")
+      .then(function(data) {
+        res.json(data);
+      })
+      .catch(function(error) {
+        res.json({error: "Database error"});
+        logError(error);
+      });
 });
 
 module.exports = router;
